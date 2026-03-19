@@ -1,217 +1,188 @@
 use anchor_lang::prelude::*;
-// ID del Solana Program, este espacio se llena automaticamente al haver el "build"
-declare_id!("");
+use anchor_lang::solana_program::keccak; // Necesario para hashear el acertijo
 
-#[program] // Macro que convierte codigo de Rust a Solana. Apartir de aqui empieza tu codigo!
-pub mod biblioteca {
-    use super::*; // Importa todas los structs y enums definidos fuera del modulo
+declare_id!("5K2gp4RCR7xRY9syXYsX5zwkdnK6UWpdmtSFVJiSTAZy");
 
-    //////////////////////////// Instruccion: Crear Biblioteca /////////////////////////////////////
-    /*
-    Permite la creacion de una PDA (Program Derived Adress), un tipo especial de cuenta en solana que permite prescindir 
-    del uso de llaves privadas para la firma de transacciones. 
+#[program]
+pub mod enigma_bound {
+    use super::*;
 
-    Esta cuenta contendra el objeto (struct) de tipo Biblioteca donde podremos almacenar los Libros. 
-    La creacion de la PDA depende de 3 cosas:
-        * Wallet address 
-        * Program ID 
-        * string representativo, regularmente relacionado con el nombre del proyecto
-    
-    La explicacion de esto continua en el struct NuevaBiblioteca
+    // 1. INICIALIZAR EL JUEGO: Crea una PDA para guardar el estado
+    pub fn create_game(
+        ctx: Context<CreateGame>,
+        hidden_word: String,
+        riddle_prompt: String,
+        riddle_answer: String,
+    ) -> Result<()> {
+        let game = &mut ctx.accounts.game_state;
+        game.player = *ctx.accounts.payer.key;
+        game.hidden_word = hidden_word.to_uppercase();
+        game.riddle = riddle_prompt;
+        
+        // Guardamos solo el HASH de la respuesta del acertijo.
+        // ¡Así nadie puede hacer trampa viendo los datos de la cuenta!
+        game.riddle_answer_hash = keccak::hash(riddle_answer.to_uppercase().as_bytes()).to_bytes();
+        game.lives = 6; // Dibujo completo del monito (cabeza, cuerpo, 2 brazos, 2 piernas)
+        game.game_status = GameStatus::Active;
 
-    Parametros de entrada:
-        * nombre -> nombre de la biblioteca -> tipo string
-     */
-    pub fn crear_biblioteca(context: Context<NuevaBiblioteca>, nombre: String) -> Result<()> {
-        // "Context" siempre suele ir como primer parametro, ya que permite acceder al objeto o cuenta con el que queremos interactuar
-        // Dentro del context va al tipo de objeto o cuenta con el que deseamos interactuar. 
-        let owner_id = context.accounts.owner.key(); // Accedemos al wallet address del caller 
-        msg!("Owner id: {}", owner_id); // Print de verificacion
-
-        let libros: Vec<Libro> = Vec::new(); // Crea un vector vacio 
-
-        // Creamos un Struct de tipo biblioteca y lo guardamos directamente 
-        context.accounts.biblioteca.set_inner(Biblioteca { 
-            owner: owner_id,
-            nombre,
-            libros,
-        });
-        Ok(()) // Representa una transaccion exitosa 
-    }
-
-    //////////////////////////// Instruccion: Agregar Libro /////////////////////////////////////
-    /*
-    Agrega un libro al vector de libros ontenido en el struct Biblioteca. 
-    En este caso el contexto empleado es el struct NuevoLibro. Mientras que NuevaBiblioteca permite crear 
-    Instancias de una Biblioteca. NuevoLibro permite crear y modificar los valores relacionados a cualquier
-    struct de tipo Libro.
-
-    Parametros de entrada:
-        * nombre -> nombre del libro -> string
-        * paginas -> numero de paginas del libro -> u16
-     */ 
-    pub fn agregar_libro(context: Context<NuevoLibro>, nombre: String, paginas: u16) -> Result<()> {
-        require!( // Medida de seguridad para identificar que SOLO el owner de la biblioteca sea el que hace cambios en ella
-            context.accounts.biblioteca.owner == context.accounts.owner.key(), // Condicion, true -> continua, false -> error
-            Errores::NoEresElOwner // Codigo de error, ver enum Errores
-        ); 
-
-        let libro = Libro { // Creacion de un struct tipo Libro
-            nombre,
-            paginas,
-            disponible: true,
-        };
-
-        context.accounts.biblioteca.libros.push(libro); // Agrega el Libro al vector de libros de Biblioteca
-
-        Ok(()) // Transaccion exitosa
-    }
-
-    //////////////////////////// Instruccion: Eliminar Libro /////////////////////////////////////
-    /*
-    Elimina un libro apartir de su nombre. Error si libro no existe, Error si vector vacio. 
-
-    Parametros de entrada:
-        * nombre -> Nombre del libro -> string
-     */
-    pub fn eliminar_libro(context: Context<NuevoLibro>, nombre: String) -> Result<()> {
-        require!( // Medida de seguridad
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
-            Errores::NoEresElOwner
-        );
-
-        let libros = &mut context.accounts.biblioteca.libros; // Referencia mutable al vector de libros
-
-        for i in 0..libros.len() { // Se itera mediante el indice todo el contenido del vector en busca del libro a eliminar
-            if libros[i].nombre == nombre { // Si lo encuentra prodece a borrarlo mediante el metodo remove
-                libros.remove(i);
-                msg!("Libro {} eliminado!", nombre); // Mensaje de borrado exitoso
-                return Ok(()); // Transaccion exitosa
-            }
+        // Inicializar la máscara revelada (_____)
+        let mut mask = String::new();
+        for _ in 0..game.hidden_word.len() {
+            mask.push('_');
         }
-        Err(Errores::LibroNoExiste.into()) // Transaccion fallida, nunca encontro el libro
+        game.revealed_mask = mask;
+
+        msg!("¡Juego Creado! Palabra de {} letras.", game.hidden_word.len());
+        msg!("Enigma: {}", game.riddle);
+        Ok(())
     }
 
-    //////////////////////////// Instruccion: Ver Libros /////////////////////////////////////
-    /*
-    Muestra en el log de la transaccion el contenido completo del vector de libros de la Biblioteca
+    // 2. ADIVINAR UNA LETRA: El método tradicional
+    pub fn guess_letter(ctx: Context<GuessLetter>, letter_guess: String) -> Result<()> {
+        let game = &mut ctx.accounts.game_state;
+        require!(game.game_status == GameStatus::Active, GameError::GameFinished);
+        require!(letter_guess.len() == 1, GameError::InvalidInput);
 
-    Parametros de entrada:
-        Ninguno
-     */
-    pub fn ver_libros(context: Context<NuevoLibro>) -> Result<()> {
-        require!( // Medida de seguridad 
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
-            Errores::NoEresElOwner
-        );
+        let guess = letter_guess.to_uppercase().chars().next().unwrap();
+        let mut found = false;
+        let mut new_mask = String::new();
+        let current_mask = game.revealed_mask.clone();
 
-        // :#? requiere que NuevoLibro tenga atributo Debug. Permite la visualizacion completa del vector en el log
-        msg!("La lista de libros actualmente es: {:#?}", context.accounts.biblioteca.libros); // Print en log
-        Ok(()) // Transaccion exitosa 
-    }
-
-    
-    //////////////////////////// Instruccion: Alternar Estado /////////////////////////////////////
-    /* 
-    Cambia el estado de disponible de false a true o de true a false.
-
-    Parametros de entrada:
-        * nombre -> Nombre del libro -> string
-     */
-    pub fn alternar_estado(context: Context<NuevoLibro>, nombre: String) -> Result<()> {
-        require!( // Medida de seguridad
-            context.accounts.biblioteca.owner == context.accounts.owner.key(),
-            Errores::NoEresElOwner
-        );
-
-        let libros = &mut context.accounts.biblioteca.libros; // Referencia mutable al vector de libros
-        for i in 0..libros.len() { // Se itera mediante el indice el vector de libros
-            let estado = libros[i].disponible;  // Se almacena el estado del vector actual
-
-            if libros[i].nombre == nombre { // Si ecuentra el nombre del libro procede a cambiar el valor del estado 
-                let nuevo_estado = !estado;
-                libros[i].disponible = nuevo_estado;
-                msg!("El libro: {} ahora tiene un valor de disponibilidad: {}", nombre, nuevo_estado); // log print de la nueva disponibilidad
-                return Ok(()); // Transaccion exitosa
+        // Verificar la letra contra la palabra oculta
+        for (i, c) in game.hidden_word.chars().enumerate() {
+            if c == guess {
+                new_mask.push(guess);
+                found = true;
+            } else {
+                new_mask.push(current_mask.chars().nth(i).unwrap());
             }
         }
 
-        Err(Errores::LibroNoExiste.into()) // Transaccion fallida, libro no existe
+        if found {
+            game.revealed_mask = new_mask;
+            msg!("¡Bien! Letra '{}' encontrada.", guess);
+            
+            // Verificar si el jugador ya ganó
+            if game.revealed_mask == game.hidden_word {
+                game.game_status = GameStatus::Won;
+                msg!("¡FELICIDADES! Resolviste el Enigma.");
+            }
+        } else {
+            // El monito se acerca a la horca
+            game.lives -= 1;
+            msg!("Letra '{}' incorrecta. Te quedan {} vidas.", guess, game.lives);
+            if game.lives == 0 {
+                game.game_status = GameStatus::Lost;
+                msg!("BOOM. Monito ahorcado. La palabra era: {}", game.hidden_word);
+            }
+        }
+        Ok(())
     }
 
+    // 3. RESOLVER EL ACERTIJO: El giro divertido
+    // Si resuelves el acertijo, revela TODAS las letras de la respuesta
+    // que estén en la palabra oculta sin gastar vidas.
+    pub fn solve_riddle(ctx: Context<SolveRiddle>, riddle_submission: String) -> Result<()> {
+        let game = &mut ctx.accounts.game_state;
+        require!(game.game_status == GameStatus::Active, GameError::GameFinished);
+
+        let submission_upper = riddle_submission.to_uppercase();
+        let submission_hash = keccak::hash(submission_upper.as_bytes()).to_bytes();
+
+        if submission_hash == game.riddle_answer_hash {
+            msg!("¡Increíble! Acertijo resuelto. Revelando letras...");
+            
+            let mut new_mask = String::new();
+            let current_mask = game.revealed_mask.clone();
+
+            // Lógica de revelado mágico: Cualquier letra en la respuesta del acertijo
+            // que también esté en la palabra oculta se revela automáticamente.
+            for (i, c) in game.hidden_word.chars().enumerate() {
+                if submission_upper.contains(c) {
+                    new_mask.push(c);
+                } else {
+                    new_mask.push(current_mask.chars().nth(i).unwrap());
+                }
+            }
+            
+            game.revealed_mask = new_mask;
+
+            // Verificar win condition
+            if game.revealed_mask == game.hidden_word {
+                game.game_status = GameStatus::Won;
+                msg!("¡FELICIDADES! Resolviste el Enigma mediante el acertijo.");
+            }
+        } else {
+            // Un castigo justo por fallar el acertijo
+            game.lives = if game.lives > 2 { game.lives - 2 } else { 0 };
+            msg!("Acertijo incorrecto. La horca se acerca rápido. Vidas restantes: {}", game.lives);
+            if game.lives == 0 {
+                game.game_status = GameStatus::Lost;
+                msg!("El monito fue ahorcado intentando resolver el acertijo.");
+            }
+        }
+        Ok(())
+    }
 }
 
-/*
-Codigos de error
-Todos los codigos se almacenan en un enum con la siguiente estructura:
-#[msg("MENSAJE DE ERROR")] (dentro de las comillas)
-NombreDelError, (En camel case)
-*/
-#[error_code]
-pub enum Errores {
-    #[msg("Error, no eres el propietario de la biblioteca que deseas modificar")]
-    NoEresElOwner,
-    #[msg("Error, el libro con el que deseas interactuar no existe")]
-    LibroNoExiste,
+// ESTRUCTURAS DE DATOS ON-CHAIN
+
+#[account]
+pub struct GameState {
+    pub player: Pubkey,         // 32
+    pub hidden_word: String,   // ~36 (4 para len + 32 chars max)
+    pub riddle: String,        // ~104 (4 para len + 100 chars max)
+    pub riddle_answer_hash: [u8; 32], // 32
+    pub revealed_mask: String, // ~36 (4 para len + 32 chars max)
+    pub lives: u8,             // 1
+    pub game_status: GameStatus, // 1 (Enum)
 }
 
-#[account] // Especifica que el strcut es una cuenta que se almacenara en la blockchain
-#[derive(InitSpace)] // Genera la constante INIT_SPACE y determina el espacio de almacenamiento necesario 
-pub struct Biblioteca { // Define la Biblioteca
-    owner: Pubkey, // Pubkey es un formato de llave publica de 32 bytes 
-
-    #[max_len(60)] // Cantidad maxima de caracteres del string: nombre
-    nombre: String,
-
-    #[max_len(10)] // Tamaño maximo del vector libros 
-    libros: Vec<Libro>,
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum GameStatus {
+    Active,
+    Won,
+    Lost,
 }
 
-/*
-Struct interno o secundario (No es una cuenta). Se define por derive y cuenta con los siguientes atributos:
-    * AnchorSerialize -> Permite guardar el struct en la cuenta 
-    * AnchorDeserialize -> Permite leer su contenido desde la cuenta 
-    * Clone -> Para copiar su contenido o valores 
-    * InitSpace -> Calcula el tamaño necesario para ser almacenado en la blockchain
-    * PartialEq -> Para usar sus valores y compararlos con "=="
-    * Debug -> Para mostrarlo en log con ":?" o ":#?"
-*/
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, PartialEq, Debug)]
-pub struct Libro {
-    #[max_len(60)]
-    nombre: String,
+// CONTEXTOS DE INSTRUCCIONES (Cuentas necesarias)
 
-    // Los siguientes datos no rquieren de max_len porque ya estan definidos (numero de 16 bits y false o true)
-    paginas: u16, 
-
-    disponible: bool,
-}
-
-
-// Creacion de los contextos para las instrucciones (funciones)
-#[derive(Accounts)] // Especifica que este struct describe las cuentas que se requieren para determinada instruccion
-pub struct NuevaBiblioteca<'info> { // contexto de la instruccion
-    #[account(mut)] 
-    pub owner: Signer<'info>, // Se define que el owner como el que pagara la transaccion, por eso es mut, para que cambie el balance de la cuenta
-
+#[derive(Accounts)]
+pub struct CreateGame<'info> {
+    // Usamos una PDA derivada de 'payer' para que cada cuenta de juego sea única.
     #[account(
-        init, // Inidica que al llamar la instruccuion se creara una cuenta
-        // puede ser remplazado por "init_if_needed" para que solo se cree una vez por caller
-        payer = owner, // Se especifica que quien paga el llamado a la instruccion, en este caso llama la instruccion 
-        space = Biblioteca::INIT_SPACE + 8, // Se calcula el espacio requerido para almacenar el Solana Program On-Chain
-        seeds = [b"biblioteca", owner.key().as_ref()], // Se especifica que la cuenta es una PDA que depende de un string y el id del owner
-        bump // Metodo para determinar el el id de la biblioteca en base a lo anterior 
+        init,
+        payer = payer,
+        space = 8 + 32 + 36 + 104 + 32 + 36 + 1 + 1, // Espacio calculado
+        seeds = [b"enigma_game", payer.key().as_ref()],
+        bump
     )]
-    pub biblioteca: Account<'info, Biblioteca>, // Se especifica que la cuenta creada (PDA) almacenara la biblioteca 
-
-    pub system_program: Program<'info, System>, // Programa necesario para crear la cuenta 
+    pub game_state: Account<'info, GameState>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
-// Contexto para la creacion y modificacion de libros 
-#[derive(Accounts)] // Especifica que este struct se requiere para todas las instrucciones relacionadas con la creacion o modificacion de Libro
-pub struct NuevoLibro<'info> {
-    pub owner: Signer<'info>, // El owner de la cuenta es quien paga la transaccion
+#[derive(Accounts)]
+pub struct GuessLetter<'info> {
+    #[account(mut, seeds = [b"enigma_game", payer.key().as_ref()], bump)]
+    pub game_state: Account<'info, GameState>,
+    pub payer: Signer<'info>,
+}
 
-    #[account(mut)] 
-    pub biblioteca: Account<'info, Biblioteca>, // Se marca biblioteca como mutable porque se modificara tanto el vector como los libros que contiene
+#[derive(Accounts)]
+pub struct SolveRiddle<'info> {
+    #[account(mut, seeds = [b"enigma_game", payer.key().as_ref()], bump)]
+    pub game_state: Account<'info, GameState>,
+    pub payer: Signer<'info>,
+}
+
+// ERRORES PERSONALIZADOS
+
+#[error_code]
+pub enum GameError {
+    #[msg("El juego ha terminado.")]
+    GameFinished,
+    #[msg("Entrada inválida. Se espera una sola letra.")]
+    InvalidInput,
 }
