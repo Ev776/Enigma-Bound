@@ -1,73 +1,78 @@
 import * as anchor from "@coral-xyz/anchor";
-import * as web3 from "@solana/web3.rs";
-import type { EnigmaBound } from "./target/types/enigma_bound"; // Asegúrate de dar Build primero
+import { Program } from "@coral-xyz/anchor";
+import { EnigmaBound } from "./target/types/enigma_bound";
 
-async function playEnigma() {
-  // Configurar el cliente y cargar el programa
+// --- BANCO DE DATOS ENVOLVENTE ---
+const RIDDLES = [
+  { word: "SOLANA", q: "Soy una red rápida como la luz, mi nombre empieza con S.", a: "SOLANA" },
+  { word: "BLOCKCHAIN", q: "Soy una cadena que nadie puede romper, guardo la verdad para siempre.", a: "BLOCKCHAIN" },
+  { word: "SATOSHI", q: "Creé el oro digital, pero nadie sabe quién soy realmente.", a: "SATOSHI" },
+  { word: "PHANTOM", q: "Soy un fantasma que guarda tus tesoros digitales en tu navegador.", a: "PHANTOM" },
+  { word: "NFT", q: "Soy único en mi especie, una obra de arte que vive en el código.", a: "NFT" }
+];
+
+const MOTIVATION = [
+  "¡No te rindas! Los grandes desarrolladores fallan mil veces antes de tener éxito.",
+  "¡Casi lo tienes! Respira profundo y analiza el enigma.",
+  "El monito confía en tu inteligencia. ¡Dale otra oportunidad!",
+  "¡Un error es solo un paso más hacia la victoria! Intenta con otra letra.",
+  "¡Venga equipo! La blockchain registra tu esfuerzo, no solo tus fallos."
+];
+
+const CRITICAL_MOTIVATION = [
+  "¡CUIDADO! La horca está cerca. Es momento de usar el acertijo.",
+  "¡No entres en pánico! Piensa con claridad, el éxito está a un clic.",
+  "Últimas oportunidades... ¿Y si pruebas con una vocal?"
+];
+
+async function playPro() {
   anchor.setProvider(anchor.AnchorProvider.env());
-  const program = anchor.workspace.EnigmaBound as anchor.Program<EnigmaBound>;
+  const program = anchor.workspace.EnigmaBound as Program<EnigmaBound>;
   const provider = anchor.getProvider();
 
-  // Generar la PDA para nuestro estado de juego
-  const [gamePda, bump] = web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("enigma_game"), provider.publicKey.toBuffer()],
+  const [gamePda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("enigma"), provider.publicKey.toBuffer()],
     program.programId
   );
 
-  console.log("Comenzando Enigma Bound...");
-  console.log("PDA del Juego:", gamePda.toBase58());
+  // Escuchar eventos de motivación en tiempo real
+  program.addEventListener("PlayerFailed", (event) => {
+    const list = event.isCritical ? CRITICAL_MOTIVATION : MOTIVATION;
+    const phrase = list[Math.floor(Math.random() * list.length)];
+    console.log("\n💬 MENSAJE DEL SISTEMA:");
+    console.log(`> "${phrase}"`);
+    console.log(`> Vidas restantes: ${event.livesLeft}\n`);
+  });
 
-  // 1. Crear un juego nuevo
-  // Palabra: ORÁCULO. Acertijo: ¿Qué pregunta nunca puedes responder 'sí'? (La respuesta es '¿Estás dormido?')
+  console.log("--- INICIANDO ENIGMA BOUND: MODO INMERSIVO ---");
+  
+  // Seleccionar acertijo aleatorio
+  const challenge = RIDDLES[Math.floor(Math.random() * RIDDLES.length)];
+
   try {
     await program.methods
-      .createGame(
-        "ORACULO", // Palabra oculta
-        "¿Qué pregunta nunca puedes responder 'sí'?", // Enigma
-        "ESTAS DORMIDO" // Respuesta correcta (Se hasheará on-chain)
-      )
+      .startNewLevel(1, challenge.word, challenge.q, challenge.a)
       .rpc();
-    console.log("✅ ¡Juego creado con éxito on-chain!");
-  } catch (e) {
-    console.log("Ya existe un juego activo o hubo un error al crear.");
+    
+    console.log("🎮 Nivel 1 Iniciado.");
+    console.log("ENIGMA:", challenge.q);
+
+    // Simular un fallo para ver la motivación
+    console.log("\nIntentando letra incorrecta 'X'...");
+    await program.methods.guessLetter("X").rpc();
+
+    // Intentar resolver el acertijo
+    console.log("Intentando resolver acertijo...");
+    await program.methods.solveRiddle(challenge.a).rpc();
+
+    const state = await program.account.gameState.fetch(gamePda);
+    if (JSON.stringify(state.gameStatus).includes("Won")) {
+      console.log("⭐ ¡VICTORIA ABSOLUTA! Has superado el Enigma Bound.");
+    }
+
+  } catch (err) {
+    console.error("Error en la partida:", err);
   }
-
-  // Leer estado inicial
-  let gameState = await program.account.gameState.fetch(gamePda);
-  console.log("--- ESTADO INICIAL ---");
-  console.log(` Palabra: ${gameState.revealedMask}`);
-  console.log(` Acertijo: ${gameState.riddle}`);
-  console.log(` Vidas: ${gameState.lives}`);
-  console.log(` Estado: ${JSON.stringify(gameState.gameStatus)}`);
-
-  // 2. Simular adivinanza: Letra 'A' (Debería estar en ORÁCULO)
-  console.log("\n--- Adivinando letra 'A' ---");
-  await program.methods.guessLetter("a").rpc();
-  
-  // 3. Simular adivinanza incorrecta: Letra 'Z'
-  console.log("\n--- Adivinando letra 'Z' (Incorrecta) ---");
-  await program.methods.guessLetter("z").rpc();
-
-  // 4. Intentar resolver el ACERTIJO
-  // Esto debería revelar la 'O' y la 'S' si la palabra fuera 'ORACULO'.
-  // *Corrección*: Si la respuesta es 'ESTAS DORMIDO', tiene letras S,T,A,D,O,R,M,I.
-  // Esas letras que ESTÁN en 'ORACULO' son: O,R,A,D.
-  // ¡Se revelarán O, R, A, D de golpe!
-  console.log("\n--- ¡Intentando Resolver el Acertijo Mágico! ---");
-  try {
-    await program.methods.solveRiddle("estas dormido").rpc();
-    console.log("✅ ¡Letras reveladas mágicamente por el acertijo!");
-  } catch (e) {
-    console.log("❌ Fallaste el acertijo.");
-  }
-
-  // Leer estado final
-  gameState = await program.account.gameState.fetch(gamePda);
-  console.log("\n--- ESTADO FINAL ---");
-  console.log(` Palabra Revelada: ${gameState.revealedMask}`);
-  console.log(` Vidas Restantes: ${gameState.lives}`);
-  console.log(` Estado: ${JSON.stringify(gameState.gameStatus)}`);
 }
 
-// Ejecutar
-playEnigma().then(() => console.log("\nSimulación completada."));
+playPro();
