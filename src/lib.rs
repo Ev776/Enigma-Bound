@@ -21,7 +21,7 @@ pub mod enigma_bound {
         game.riddle = riddle_prompt;
         game.riddle_answer_hash = keccak::hash(riddle_answer.to_uppercase().as_bytes()).to_bytes();
 
-        // Las vidas dependen del nivel: a más nivel, menos vidas.
+        // Ajuste de dificultad por nivel
         game.lives = if level > 5 { 4 } else { 6 };
         game.game_status = GameStatus::Active;
 
@@ -71,7 +71,7 @@ pub mod enigma_bound {
             if game.lives == 0 {
                 game.game_status = GameStatus::Lost;
             }
-            // Emitimos evento de fallo para que el cliente mande motivación
+            // Evento de fallo para motivación del cliente
             emit!(PlayerFailed {
                 player: game.player,
                 lives_left: game.lives,
@@ -88,7 +88,6 @@ pub mod enigma_bound {
         if submission_hash == game.riddle_answer_hash {
             game.game_status = GameStatus::Won;
             game.revealed_mask = game.hidden_word.clone();
-            msg!("¡Mente brillante detectada!");
         } else {
             game.lives = if game.lives > 2 { game.lives - 2 } else { 0 };
             if game.lives == 0 {
@@ -139,7 +138,13 @@ pub struct PlayerFailed {
 
 #[derive(Accounts)]
 pub struct CreateGame<'info> {
-    #[account(init_if_needed, payer = payer, space = 8 + 32 + 1 + 40 + 120 + 32 + 40 + 1 + 1, seeds = [b"enigma", payer.key().as_ref()], bump)]
+    #[account(
+        init_if_needed, 
+        payer = payer, 
+        space = 8 + 32 + 1 + 64 + 200 + 32 + 64 + 1 + 1, 
+        seeds = [b"enigma", payer.key().as_ref()], 
+        bump
+    )]
     pub game_state: Account<'info, GameState>,
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -155,6 +160,6 @@ pub struct Action<'info> {
 
 #[error_code]
 pub enum GameError {
-    #[msg("El juego terminó.")]
+    #[msg("El juego ya ha terminado.")]
     GameFinished,
 }
