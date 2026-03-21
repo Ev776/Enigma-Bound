@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Enigma Bound</title>
+
+<style>
+:root {
+    --bg:#0a0a0a; --cyan:#00ffff; --magenta:#ff00ff;
+    --yellow:#ffff00; --green:#00ff00; --red:#ff0000;
+    --white:#fff; --blue:#0000ff;
+}
+
+body{
+    background:var(--bg);
+    color:var(--white);
+    font-family:monospace;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    padding:20px;
+}
+
+#terminal{
+    width:95%;
+    max-width:800px;
+    background:black;
+    border:2px solid var(--blue);
+    padding:20px;
+}
+
+pre{margin:0; white-space:pre-wrap;}
+
+.input-area{
+    margin-top:10px;
+    display:flex;
+    gap:10px;
+}
+
+input{
+    flex:1;
+    padding:10px;
+    background:#111;
+    border:1px solid var(--cyan);
+    color:white;
+}
+
+button{
+    padding:10px;
+    background:var(--blue);
+    color:white;
+    border:none;
+    cursor:pointer;
+}
+
+.motivation-box{
+    margin-top:10px;
+    border:1px solid var(--magenta);
+    padding:10px;
+    display:none;
+}
+</style>
+</head>
+
+<body>
+
+<div id="terminal">
+    <div id="dashboard"></div>
+    <div id="motivation" class="motivation-box"></div>
+
+    <div class="input-area">
+        <input id="userInput">
+        <button onclick="handle('guess')">Letra</button>
+        <button onclick="handle('solve')">Resolver</button>
+    </div>
+</div>
+
+<script>
+
+// 🔥 BASE COMPLETA (20 niveles)
+const DATABASE = [
+ {word:"SOLANA",q:"Red rápida como la luz.",a:"SOLANA"},
+ {word:"BLOCKCHAIN",q:"Cadena de bloques.",a:"BLOCKCHAIN"},
+ {word:"ANCHOR",q:"Framework de Solana.",a:"ANCHOR"},
+ {word:"RUST",q:"Lenguaje veloz.",a:"RUST"},
+ {word:"PHANTOM",q:"Wallet fantasma.",a:"PHANTOM"},
+ {word:"BITCOIN",q:"Primera cripto.",a:"BITCOIN"},
+ {word:"LAMPORT",q:"Unidad mínima SOL.",a:"LAMPORT"},
+ {word:"DEVNET",q:"Red de pruebas.",a:"DEVNET"},
+ {word:"TOKEN",q:"Activo digital.",a:"TOKEN"},
+ {word:"METAPLEX",q:"NFTs en Solana.",a:"METAPLEX"},
+ {word:"VALIDADOR",q:"Asegura red.",a:"VALIDADOR"},
+ {word:"STAKING",q:"Generar recompensas.",a:"STAKING"},
+ {word:"AIRDROP",q:"Regalo de tokens.",a:"AIRDROP"},
+ {word:"GENESIS",q:"Primer bloque.",a:"GENESIS"},
+ {word:"MAINNET",q:"Red real.",a:"MAINNET"},
+ {word:"SATS",q:"Fracción BTC.",a:"SATS"},
+ {word:"ORACULO",q:"Datos externos.",a:"ORACULO"},
+ {word:"MINERIA",q:"Crear bloques.",a:"MINERIA"},
+ {word:"WEB3",q:"Internet futuro.",a:"WEB3"},
+ {word:"ETHEREUM",q:"Smart contracts.",a:"ETHEREUM"}
+];
+
+// 🔥 SHUFFLE SIN REPETICIÓN (Fisher-Yates)
+function shuffle(array){
+    let a=[...array];
+    for(let i=a.length-1;i>0;i--){
+        let j=Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+}
+
+// 👇 AQUÍ ESTÁ LA MAGIA
+const niveles = shuffle(DATABASE);
+
+const MOTIVATION=[
+"¡No te rindas!",
+"¡Casi lo logras!",
+"¡Modo hacker activado!",
+"¡Sigue intentando!",
+"¡Eres pro!"
+];
+
+const HANG=[
+`  +---+
+  |   |
+      |
+      |
+      |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+      |
+      |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+  |   |
+      |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+ /|   |
+      |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+ /|\\  |
+      |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+ /|\\  |
+ /    |
+      |
+=========`,
+`  +---+
+  |   |
+  O   |
+ /|\\  |
+ / \\  |
+      |
+=========`
+];
+
+// ENGINE
+class Game{
+    start(i){
+        let d=niveles[i];
+        this.level=i+1;
+        this.word=d.word;
+        this.mask="_".repeat(d.word.length);
+        this.riddle=d.q;
+        this.answer=d.a;
+        this.lives=6;
+        this.status="ACTIVE";
+    }
+
+    guess(c){
+        let f=false,m="";
+        for(let i=0;i<this.word.length;i++){
+            if(this.word[i]===c.toUpperCase()){
+                m+=c.toUpperCase(); f=true;
+            }else m+=this.mask[i];
+        }
+        if(f){
+            this.mask=m;
+            if(this.mask===this.word) this.status="WON";
+        }else{
+            this.lives--;
+            showMotivation();
+            if(this.lives<=0)this.status="LOST";
+        }
+    }
+
+    solve(a){
+        if(a.toUpperCase()===this.answer){
+            this.status="WON";
+            this.mask=this.word;
+        }else{
+            this.lives-=2;
+            showMotivation("Fallaste ❌");
+            if(this.lives<=0)this.status="LOST";
+        }
+    }
+}
+
+const game=new Game();
+let idx=0;
+
+// RENDER TERMINAL
+function render(){
+    let h=6-game.lives;
+
+    let lines=game.riddle.match(/.{1,40}/g)||[];
+    let riddle=lines.map(l=>`║  ${l.padEnd(40)}║`).join("\n");
+
+    document.getElementById("dashboard").innerHTML=`
+<pre>
+╔════════════════════════════════════════════╗
+║           ENIGMA BOUND TERMINAL           ║
+╠════════════════════════════════════════════╣
+${HANG[h].split("\n").map(l=>`║  ${l.padEnd(40)}║`).join("\n")}
+╠════════════════════════════════════════════╣
+║ Nivel: ${game.level.toString().padEnd(35)}║
+║ Enigma:                                   ║
+${riddle}
+║ Palabra: ${game.mask.split("").join(" ").padEnd(33)}║
+║ Vidas: ${"❤".repeat(game.lives).padEnd(36)}║
+║ Estado: ${game.status.padEnd(34)}║
+╚════════════════════════════════════════════╝
+</pre>
+`;
+
+    if(game.status==="WON"){
+        showMotivation("Nivel superado 🚀");
+        setTimeout(()=>{idx++; load();},1500);
+    }
+
+    if(game.status==="LOST"){
+        showMotivation("GAME OVER 💀");
+        setTimeout(()=>location.reload(),2000);
+    }
+}
+
+// MOTIVACIÓN
+function showMotivation(msg){
+    let b=document.getElementById("motivation");
+    b.innerText=msg||MOTIVATION[Math.floor(Math.random()*MOTIVATION.length)];
+    b.style.display="block";
+    setTimeout(()=>b.style.display="none",2000);
+}
+
+// CONTROL
+function handle(t){
+    let i=document.getElementById("userInput");
+    let v=i.value.trim();
+    if(!v)return;
+
+    if(t==="guess")game.guess(v);
+    else game.solve(v);
+
+    i.value="";
+    render();
+}
+
+function load(){
+    if(idx>=niveles.length){
+        alert("🏆 TERMINASTE TODO");
+        location.reload();
+        return;
+    }
+    game.start(idx);
+    render();
+}
+
+document.getElementById("userInput").addEventListener("keypress",e=>{
+    if(e.key==="Enter")handle("guess");
+});
+
+window.onload=load;
+
+</script>
+
+</body>
+</html>
