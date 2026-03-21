@@ -53,7 +53,7 @@ const CRITICAL = [
 
 // --- BASE DE DATOS DE NIVELES EXTENDIDA ---
 const DATABASE_NIVELES = [
-  { word: "SOLANA", q: "Red rápida como la luz, con S comienza.", a: "SOLANA" },
+  { word: "SOLANA", q: "Red rápida como la luz, comienza con S y termina con A.", a: "SOLANA" },
   { word: "BLOCKCHAIN", q: "Cadena de bloques inmutable.", a: "BLOCKCHAIN" },
   { word: "ANCHOR", q: "Framework esencial para Rust en Solana.", a: "ANCHOR" },
   { word: "BITCOIN", q: "La madre de todas las criptos.", a: "BITCOIN" },
